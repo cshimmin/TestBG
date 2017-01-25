@@ -33,8 +33,8 @@ public class CameraService extends IntentService {
     }
 
     /**
-     * Starts this service to perform action Foo with the given parameters. If
-     * the service is already performing a task this action will be queued.
+     * Starts this service to begin taking video with the camera.
+     * If the service is already performing a task this action will be queued.
      *
      * @see IntentService
      */
@@ -58,6 +58,7 @@ public class CameraService extends IntentService {
         }
     }
 
+    /* Spin up a BG thread where the camera data will delivered to */
     private void startBackgroundThread() {
         if (mBackgroundThread != null) return;
         mBackgroundThread = new HandlerThread("BGCamera");
@@ -65,6 +66,10 @@ public class CameraService extends IntentService {
         mBackgroundHandler = new Handler(mBackgroundThread.getLooper());
     }
 
+    /* initialize the camera using the old camera API. obviously you could do
+     * more configuration here. and also we should probably be careful
+     * about _un_-setting up the camera.
+     */
     private void initCamera() {
         if (mCamera == null) {
             Log.d(TAG, "No camera found... initializing.");
@@ -72,14 +77,33 @@ public class CameraService extends IntentService {
         }
     }
 
+    /* This is the main entrypoint that gets run in the background
+     * when the main app starts the service using startService().
+     */
     private void startCamera(int repeat) {
+        // NB: I'm no longer using the repeat parameter...
+	// but I left it as an example of how to pass params
+	// to the service via intent.
+	
+	// start up a background thread. this is needed because
+	// we need a thread to receieve the camera images, but it
+	// cannot be this thread, because this thread dies as soon
+	// as this function, startCamer(), is completed.
         startBackgroundThread();
 
+	// run the camera initialization in the background thread.
+	// this is important because the thread which calls
+	// Camera.open() is the one which receives the callbacks
         mBackgroundHandler.post(new Runnable() {
             @Override
             public void run() {
                 initCamera();
 
+		// define a callback function to receieve the buffers from
+		// each new camera frame.
+		// note I'm being lazy here by defining the callback inline;
+		// it would be more proper to have the CameraService implement
+		// the Camera.PreviewCallback interface.
                 mCamera.setPreviewCallback(new Camera.PreviewCallback() {
                     private int imgs_scanned = 0;
                     @Override
@@ -95,13 +119,19 @@ public class CameraService extends IntentService {
                     }
                 });
 
+		// set the camera going. we should find some way to also stop the camera from going...
                 mCamera.startPreview();
             }
         });
 
         // TODO: find some way to send a messge to the BG service to tell it to stop.
+	
+	// Remember, the Service dies when this function returns.
+	// So, loop forever, checking periodically if IS_RUNNING gets set to false.
+	// Need to find a way for the main camera app to set IS_RUNNING to false.
+	// it would also be a better idea to use some kind of blocking messaging queue,
+	// so there is not a 500ms latency to disabling the camera.
         IS_RUNNING = true;
-
         while (IS_RUNNING) {
             try {
                 Thread.sleep(500);
@@ -109,5 +139,8 @@ public class CameraService extends IntentService {
                 continue;
             }
         }
+
+	// If we get here, we have decided to stop running.
+	// TODO: shutdown the camera
     }
 }
